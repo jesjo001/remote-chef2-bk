@@ -37,6 +37,7 @@ export const getTodayDeliveries = async (_req: Request, res: Response): Promise<
     })
       .populate('user', 'name phone address')
       .populate('subscription', 'mealsPerDay scheduleType')
+      .populate('assignedDriver', 'name phone')
       .sort({ 'user.address.area': 1 });
 
     res.json({
@@ -50,28 +51,80 @@ export const getTodayDeliveries = async (_req: Request, res: Response): Promise<
   }
 };
 
-// ─── Admin: Update Delivery Status ────────────────────────────────────────────
+// ─── Driver: Get My Assigned Deliveries ───────────────────────────────────────
+export const getDriverDeliveries = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { from, to, status } = req.query;
+    const query: Record<string, unknown> = { assignedDriver: req.user!._id };
+
+    if (from || to) {
+      const dateQuery: Record<string, unknown> = {};
+      if (from) {
+        const start = new Date(from as string);
+        start.setHours(0, 0, 0, 0);
+        dateQuery.$gte = start;
+      }
+      if (to) {
+        const end = new Date(to as string);
+        end.setHours(23, 59, 59, 999);
+        dateQuery.$lte = end;
+      }
+      query.scheduledDate = dateQuery;
+    } else {
+      // Default to today
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayEnd = new Date(today);
+      todayEnd.setHours(23, 59, 59, 999);
+      query.scheduledDate = { $gte: today, $lte: todayEnd };
+    }
+
+    if (status) query.status = status;
+
+    console.log(`Fetching deliveries for driver ${req.user!._id}:`, query);
+
+    const deliveries = await Delivery.find(query)
+      .populate('user', 'name phone address email')
+      .populate('subscription', 'mealsPerDay')
+      .sort({ scheduledDate: 1 });
+
+    console.log(`Found ${deliveries.length} deliveries for driver ${req.user!._id}`);
+
+    res.json({ success: true, total: deliveries.length, deliveries });
+  } catch (err) {
+    console.error('getDriverDeliveries error:', err);
+    res.status(500).json({ success: false, message: 'Failed to fetch driver deliveries.', error: err });
+  }
+};
+
+// ─── Driver/Admin: Update Delivery Status ────────────────────────────────────
 export const updateDeliveryStatus = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { status, driverNote } = req.body;
+    const { status, driverNote, receiptImage } = req.body;
     const { id } = req.params;
 
-    const delivery = await Delivery.findByIdAndUpdate(
-      id,
-      {
-        status,
-        driverNote,
-        ...(status === 'delivered' && { deliveredAt: new Date() }),
-      },
-      { new: true }
-    ).populate('user', 'name phone');
-
+    const delivery = await Delivery.findById(id);
     if (!delivery) {
       res.status(404).json({ success: false, message: 'Delivery not found.' });
       return;
     }
 
-    res.json({ success: true, delivery });
+    // Authorization: Admin can update any, Driver can only update theirs
+    if (!req.admin && String(delivery.assignedDriver) !== String(req.user!._id)) {
+      res.status(403).json({ success: false, message: 'Not authorized to update this delivery.' });
+      return;
+    }
+
+    delivery.status = status;
+    if (driverNote !== undefined) delivery.driverNote = driverNote;
+    if (receiptImage !== undefined) delivery.receiptImage = receiptImage;
+    if (status === 'delivered') delivery.deliveredAt = new Date();
+
+    await delivery.save();
+    
+    const populated = await Delivery.findById(id).populate('user', 'name phone');
+
+    res.json({ success: true, delivery: populated });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Status update failed.', error: err });
   }
@@ -90,6 +143,7 @@ export const getDeliveriesByRange = async (req: Request, res: Response): Promise
 
     const deliveries = await Delivery.find(query)
       .populate('user', 'name phone address')
+      .populate('assignedDriver', 'name phone')
       .sort({ scheduledDate: -1 });
 
     res.json({ success: true, total: deliveries.length, deliveries });

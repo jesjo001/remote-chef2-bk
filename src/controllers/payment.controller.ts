@@ -4,10 +4,12 @@ import path from 'path';
 import { Payment } from '../models/Payment';
 import { ManualTransfer } from '../models/Payment';
 import Subscription from '../models/Subscription';
-import { activateSubscription } from './subscription.controller';
+import { activateSubscription, applyPortionUpgrade, applyAddOnUpgrade } from './subscription.controller';
 import { verifyFlutterwavePayment, initiateFlutterwavePayment } from '../services/flutterwave.service';
 
-// ─── Flutterwave: Initiate Payment ─────────────────────────────────────────────
+const dev = process.env.NODE_ENV !== 'production';
+const FLW_PUBLIC_KEY = dev ? process.env.FLUTTERWAVE_TEST_PUBLIC_KEY : process.env.FLW_PUBLIC_KEY;
+// ---------- Flutterwave: Initiate Payment ----------
 export const initiateFlutterwave = async (req: Request, res: Response): Promise<void> => {
   try {
     const { subscriptionId } = req.body;
@@ -48,11 +50,11 @@ export const initiateFlutterwave = async (req: Request, res: Response): Promise<
           amount: payment.amount,
         },
         // Return authorization URL for redirect or inline payment
-        authorizationUrl: result.data?.authorization_url,
+        authorizationUrl: result.data?.authorization_url || result.data?.link,
         accessCode: result.data?.access_code,
         // Also return config for frontend fallback (inline payment)
         flutterwave: {
-          public_key: process.env.FLW_PUBLIC_KEY,
+          public_key: FLW_PUBLIC_KEY,
           tx_ref: payment.txRef,
           amount: payment.amount,
           currency: 'NGN',
@@ -86,7 +88,7 @@ export const initiateFlutterwave = async (req: Request, res: Response): Promise<
   }
 };
 
-// ─── Flutterwave: Webhook ──────────────────────────────────────────────────────
+// ---------- Flutterwave: Webhook ----------
 export const flutterwaveWebhook = async (req: Request, res: Response): Promise<void> => {
   try {
     // Verify webhook signature
@@ -124,7 +126,15 @@ export const flutterwaveWebhook = async (req: Request, res: Response): Promise<v
     );
 
     if (payment) {
-      await activateSubscription(String(payment.subscription));
+      if (payment.type === 'upgrade') {
+        if (payment.metadata?.newPortions) {
+          await applyPortionUpgrade(String(payment.subscription), payment.metadata.newPortions);
+        } else if (payment.metadata?.newAddOns) {
+          await applyAddOnUpgrade(String(payment.subscription), payment.metadata.newAddOns);
+        }
+      } else {
+        await activateSubscription(String(payment.subscription));
+      }
     }
 
     res.status(200).json({ message: 'Webhook processed.' });
@@ -133,24 +143,67 @@ export const flutterwaveWebhook = async (req: Request, res: Response): Promise<v
   }
 };
 
-// ─── Flutterwave: Frontend verify after redirect ───────────────────────────────
+// ---------- Flutterwave: Frontend verify after redirect ----------
 export const verifyPaymentStatus = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { tx_ref } = req.query as { tx_ref: string };
+    const tx_ref = (req.query.tx_ref || req.query.txRef) as string;
+    const transaction_id = req.query.transaction_id as string;
+    const status = req.query.status as string;
 
-    const payment = await Payment.findOne({ txRef: tx_ref }).populate('subscription');
-    if (!payment) {
-      res.status(404).json({ success: false, message: 'Payment not found.' });
+    if (!tx_ref) {
+      res.status(400).json({ success: false, message: 'Transaction reference is required.' });
       return;
+    }
+
+    let payment = await Payment.findOne({ txRef: tx_ref }).populate('subscription');
+    
+    if (!payment) {
+      res.status(404).json({ success: false, message: 'Payment record not found.' });
+      return;
+    }
+
+    // If payment is already successful, just return it
+    if (payment.status === 'successful') {
+      res.json({ success: true, payment });
+      return;
+    }
+
+    // If status from gateway is successful but DB is still pending, verify with Flutterwave
+    if ((status === 'successful' || status === 'success') && transaction_id) {
+      const verified = await verifyFlutterwavePayment(transaction_id);
+      
+      if (verified) {
+        payment.status = 'successful';
+        payment.flwRef = transaction_id;
+        payment.paidAt = new Date();
+        await payment.save();
+
+        if (payment.type === 'upgrade') {
+          if (payment.metadata?.newPortions) {
+            await applyPortionUpgrade(String(payment.subscription._id || payment.subscription), payment.metadata.newPortions);
+          } else if (payment.metadata?.newAddOns) {
+            await applyAddOnUpgrade(String(payment.subscription._id || payment.subscription), payment.metadata.newAddOns);
+          }
+        } else {
+          await activateSubscription(String(payment.subscription._id || payment.subscription));
+        }
+        
+        // Refetch to get populated subscription if needed, or just return updated payment
+        payment = await Payment.findById(payment._id).populate('subscription');
+      } else {
+        payment.status = 'failed';
+        await payment.save();
+      }
     }
 
     res.json({ success: true, payment });
   } catch (err) {
+    console.error('Payment verification error:', err);
     res.status(500).json({ success: false, message: 'Verification failed.', error: err });
   }
 };
 
-// ─── User: Get My Payments ────────────────────────────────────────────────────
+// ---------- User: Get My Payments ----------
 export const getMyPayments = async (req: Request, res: Response): Promise<void> => {
   try {
     const payments = await Payment.find({ user: req.user!._id }).sort({ createdAt: -1 });
@@ -172,7 +225,7 @@ export const getMyPayments = async (req: Request, res: Response): Promise<void> 
   }
 };
 
-// ─── Manual Transfer: Upload Receipt ──────────────────────────────────────────
+// ---------- Manual Transfer: Upload Receipt ----------
 export const uploadManualReceipt = async (req: Request, res: Response): Promise<void> => {
   try {
     if (!req.file) {
@@ -217,7 +270,7 @@ export const uploadManualReceipt = async (req: Request, res: Response): Promise<
   }
 };
 
-// ─── Admin: Get Pending Manual Transfers ──────────────────────────────────────
+// ---------- Admin: Get Pending Manual Transfers ----------
 export const getPendingTransfers = async (_req: Request, res: Response): Promise<void> => {
   try {
     const transfers = await ManualTransfer.find({ status: 'pending' })
@@ -231,7 +284,7 @@ export const getPendingTransfers = async (_req: Request, res: Response): Promise
   }
 };
 
-// ─── Admin: Approve / Reject Manual Transfer ──────────────────────────────────
+// ---------- Admin: Approve / Reject Manual Transfer ----------
 export const reviewManualTransfer = async (req: Request, res: Response): Promise<void> => {
   try {
     const { status, adminNote } = req.body as { status: 'approved' | 'rejected'; adminNote?: string };
@@ -255,8 +308,16 @@ export const reviewManualTransfer = async (req: Request, res: Response): Promise
     await transfer.save();
 
     if (status === 'approved') {
-      await Payment.findByIdAndUpdate(transfer.payment, { status: 'successful', paidAt: new Date() });
-      await activateSubscription(String(transfer.subscription));
+      const payment = await Payment.findByIdAndUpdate(transfer.payment, { status: 'successful', paidAt: new Date() }, { new: true });
+      if (payment && payment.type === 'upgrade') {
+        if (payment.metadata?.newPortions) {
+          await applyPortionUpgrade(String(transfer.subscription), payment.metadata.newPortions);
+        } else if (payment.metadata?.newAddOns) {
+          await applyAddOnUpgrade(String(transfer.subscription), payment.metadata.newAddOns);
+        }
+      } else {
+        await activateSubscription(String(transfer.subscription));
+      }
     } else {
       await Payment.findByIdAndUpdate(transfer.payment, { status: 'failed' });
     }

@@ -8,6 +8,8 @@ export interface IPayment extends Document {
   currency: string;
   gateway: 'flutterwave' | 'manual_transfer';
   status: 'pending' | 'successful' | 'failed' | 'refunded';
+  type: 'subscription' | 'upgrade';
+  metadata?: any;           // e.g., { newPortions: 2 } for upgrades
   flwRef?: string;          // Flutterwave transaction reference
   txRef: string;            // Our internal reference
   gatewayResponse?: object; // Raw webhook payload
@@ -23,6 +25,8 @@ const PaymentSchema = new Schema<IPayment>(
     currency: { type: String, default: 'NGN' },
     gateway: { type: String, enum: ['flutterwave', 'manual_transfer'], required: true },
     status: { type: String, enum: ['pending', 'successful', 'failed', 'refunded'], default: 'pending' },
+    type: { type: String, enum: ['subscription', 'upgrade'], default: 'subscription' },
+    metadata: { type: Schema.Types.Mixed },
     flwRef: String,
     txRef: { type: String, required: true, unique: true },
     gatewayResponse: Schema.Types.Mixed,

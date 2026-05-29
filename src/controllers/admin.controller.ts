@@ -4,8 +4,10 @@ import Subscription from '../models/Subscription';
 import Delivery from '../models/Delivery';
 import { Payment, ManualTransfer } from '../models/Payment';
 import Admin from '../models/Admin';
+import * as deliveryService from '../services/delivery.service';
+import { sendMail } from '../services/mail.service';
 
-// ─── Dashboard Overview ────────────────────────────────────────────────────────
+// ---------- Dashboard Overview ----------
 export const getDashboardStats = async (_req: Request, res: Response): Promise<void> => {
   try {
     const now = new Date();
@@ -72,7 +74,7 @@ export const getDashboardStats = async (_req: Request, res: Response): Promise<v
   }
 };
 
-// ─── Admin: Get All Subscribers ────────────────────────────────────────────────
+// ---------- Admin: Get All Subscribers ----------
 export const getAllSubscribers = async (req: Request, res: Response): Promise<void> => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
@@ -87,6 +89,7 @@ export const getAllSubscribers = async (req: Request, res: Response): Promise<vo
     const [subscriptions, total] = await Promise.all([
       Subscription.find(query)
         .populate('user', 'name email phone address')
+        .populate('assignedDriver', 'name email phone')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum),
@@ -106,7 +109,7 @@ export const getAllSubscribers = async (req: Request, res: Response): Promise<vo
   }
 };
 
-// ─── Admin: Get All Users ──────────────────────────────────────────────────────
+// ---------- Admin: Get All Users ----------
 export const getAllUsers = async (_req: Request, res: Response): Promise<void> => {
   try {
     const users = await User.find().select('-password').sort({ createdAt: -1 });
@@ -116,7 +119,7 @@ export const getAllUsers = async (_req: Request, res: Response): Promise<void> =
   }
 };
 
-// ─── Admin: Revenue Report ─────────────────────────────────────────────────────
+// ---------- Admin: Revenue Report ----------
 export const getRevenueReport = async (req: Request, res: Response): Promise<void> => {
   try {
     const { year = new Date().getFullYear() } = req.query;
@@ -151,7 +154,7 @@ export const getRevenueReport = async (req: Request, res: Response): Promise<voi
   }
 };
 
-// ─── Admin: Create Admin User ──────────────────────────────────────────────────
+// ---------- Admin: Create Admin User ----------
 export const createAdmin = async (req: Request, res: Response): Promise<void> => {
   try {
     const { name, email, password, role } = req.body;
@@ -170,7 +173,7 @@ export const createAdmin = async (req: Request, res: Response): Promise<void> =>
   }
 };
 
-// ─── Admin: Get All Admins ────────────────────────────────────────────────────
+// ---------- Admin: Get All Admins ----------
 export const getAllAdmins = async (_req: Request, res: Response): Promise<void> => {
   try {
     const admins = await Admin.find().select('-password').sort({ createdAt: -1 });
@@ -180,7 +183,7 @@ export const getAllAdmins = async (_req: Request, res: Response): Promise<void> 
   }
 };
 
-// ─── Admin: Deactivate/Activate User ───────────────────────────────────────────
+// ---------- Admin: Deactivate/Activate User ----------
 export const toggleUserStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId } = req.params;
@@ -207,7 +210,7 @@ export const toggleUserStatus = async (req: Request, res: Response): Promise<voi
   }
 };
 
-// ─── Admin: Deactivate/Activate Subscription ───────────────────────────────────
+// ---------- Admin: Deactivate/Activate Subscription ----------
 export const toggleSubscriptionStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const { subscriptionId } = req.params;
@@ -239,10 +242,21 @@ export const toggleSubscriptionStatus = async (req: Request, res: Response): Pro
   }
 };
 
-// ─── Admin: Delete User ────────────────────────────────────────────────────────
+// ---------- Admin: Delete User ----------
 export const deleteUser = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId } = req.params;
+    const { hardDelete } = req.query;
+
+    if (hardDelete === 'true') {
+      const user = await User.findByIdAndDelete(userId);
+      if (!user) {
+        res.status(404).json({ success: false, message: 'User not found.' });
+        return;
+      }
+      res.json({ success: true, message: 'User deleted permanently.' });
+      return;
+    }
 
     // Soft delete: just deactivate
     const user = await User.findByIdAndUpdate(
@@ -262,7 +276,7 @@ export const deleteUser = async (req: Request, res: Response): Promise<void> => 
   }
 };
 
-// ─── Admin: Update Admin Status ────────────────────────────────────────────────
+// ---------- Admin: Update Admin Status ----------
 export const toggleAdminStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const { adminId } = req.params;
@@ -288,3 +302,122 @@ export const toggleAdminStatus = async (req: Request, res: Response): Promise<vo
     res.status(500).json({ success: false, message: 'Failed to update admin status.', error: err });
   }
 };
+
+// ---------- Driver Management ----------
+
+export const addDriver = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { name, email, phone, password, address } = req.body;
+
+    const existing = await User.findOne({ email });
+    if (existing) {
+      res.status(409).json({ success: false, message: 'Email already registered.' });
+      return;
+    }
+
+    const driver = await User.create({
+      name,
+      email,
+      phone,
+      password,
+      address,
+      role: 'driver',
+      isEmailVerified: true, // Assuming admin verified it
+    });
+
+    // send welcome email to driver (optional) with login details and instructions
+    // asking driver to login to complete signup 
+    await sendMail({
+      to: driver.email,
+      subject: 'Welcome to RemoteChef - Driver Account Created',
+      html: `
+        <p>Hi ${driver.name},</p>
+        <p>Your driver account has been created by the admin team. Please log in to your account to complete your profile and start accepting delivery assignments.</p>
+        <p><strong>Login Details:</strong></p>
+        <ul>
+          <li>Email: ${driver.email}</li>
+          <li>Password: ${password}</li>
+        </ul>
+        <p>After ${'<a href="' + process.env.FRONTEND_URL + '/login' + `">logging in</a></p>` }' to your account, please update your password.</p>"
+        <p>If you have any questions, feel free to contact our support team.</p>
+        <p>Thank you for joining RemoteChef!</p>
+      `,
+    });
+
+
+    res.status(201).json({
+      success: true,
+      message: 'Driver added successfully.',
+      driver: { id: driver._id, name: driver.name, email: driver.email },
+    });
+  } catch (err) {
+    console.error('Add driver error:', err);
+    res.status(500).json({ success: false, message: 'Failed to add driver.', error: err });
+  }
+};
+
+export const listDrivers = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const drivers = await User.find({ role: 'driver' }).select('-password');
+    res.json({ success: true, count: drivers.length, drivers });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to fetch drivers.', error: err });
+  }
+};
+
+export const assignDriverToSubscription = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { subscriptionId, driverId } = req.body;
+
+    const subscription = await Subscription.findById(subscriptionId);
+    if (!subscription) {
+      res.status(404).json({ success: false, message: 'Subscription not found.' });
+      return;
+    }
+
+    if(driverId === "none") {
+      await deliveryService.assignDriverToSubscription(subscriptionId, null);
+      res.json({ success: true, message: 'Driver unassigned from subscription and future deliveries.' });
+      return;
+    }
+
+    const driver = await User.findOne({ _id: driverId, role: 'driver' });
+    if (!driver) {
+      res.status(404).json({ success: false, message: 'Driver not found.' });
+      return;
+    }
+
+    await deliveryService.assignDriverToSubscription(subscriptionId, driverId);
+
+    res.json({ success: true, message: 'Driver assigned to subscription and future deliveries.' });
+  } catch (err) {
+    console.log('Assign driver error:', err);
+    res.status(500).json({ success: false, message: 'Assignment failed.', error: err });
+  }
+};
+
+export const reassignDelivery = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { deliveryId, driverId } = req.body;
+
+    const delivery = await Delivery.findById(deliveryId);
+    if (!delivery) {
+      res.status(404).json({ success: false, message: 'Delivery not found.' });
+      return;
+    }
+
+    const driver = await User.findOne({ _id: driverId, role: 'driver' });
+    if (!driver) {
+      res.status(404).json({ success: false, message: 'Driver not found.' });
+      return;
+    }
+
+    delivery.assignedDriver = driverId;
+    await delivery.save();
+
+    res.json({ success: true, message: 'Delivery reassigned successfully.' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Reassignment failed.', error: err });
+  }
+};
+

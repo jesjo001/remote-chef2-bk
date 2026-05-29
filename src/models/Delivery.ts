@@ -8,7 +8,9 @@ export interface IDelivery extends Document {
   scheduledDate: Date;
   mealsCount: number;
   status: DeliveryStatus;
+  assignedDriver?: mongoose.Types.ObjectId;
   deliveredAt?: Date;
+  receiptImage?: string;
   driverNote?: string;
   adminNote?: string;
   createdAt: Date;
@@ -25,7 +27,9 @@ const DeliverySchema = new Schema<IDelivery>(
       enum: ['scheduled', 'out_for_delivery', 'delivered', 'missed', 'paused'],
       default: 'scheduled',
     },
+    assignedDriver: { type: Schema.Types.ObjectId, ref: 'User' },
     deliveredAt: Date,
+    receiptImage: String,
     driverNote: String,
     adminNote: String,
   },

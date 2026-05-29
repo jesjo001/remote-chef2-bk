@@ -74,3 +74,12 @@ export const superAdminOnly = (req: Request, res: Response, next: NextFunction):
   }
   next();
 };
+
+// ─── Driver Only ───────────────────────────────────────────────────────────────
+export const driverOnly = (req: Request, res: Response, next: NextFunction): void => {
+  if (req.user?.role !== 'driver') {
+    res.status(403).json({ success: false, message: 'Driver access required.' });
+    return;
+  }
+  next();
+};

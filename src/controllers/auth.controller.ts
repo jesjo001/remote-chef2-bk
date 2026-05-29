@@ -3,12 +3,13 @@ import jwt from 'jsonwebtoken';
 import User from '../models/User';
 import Admin from '../models/Admin';
 
-const serializeUser = (user: { _id?: unknown; id?: unknown; name: string; email: string; phone: string; address: unknown; createdAt?: Date | string }) => ({
+const serializeUser = (user: { _id?: unknown; id?: unknown; name: string; email: string; phone: string; address: unknown; createdAt?: Date | string, role: string }) => ({
   id: String(user.id || user._id),
   name: user.name,
   email: user.email,
   phone: user.phone,
   address: user.address,
+  role: user.role,
   createdAt: user.createdAt instanceof Date ? user.createdAt.toISOString() : String(user.createdAt || new Date().toISOString()),
 });
 
@@ -22,7 +23,7 @@ const signAdminToken = (id: string) =>
     expiresIn: '1d' as jwt.SignOptions['expiresIn'],
   });
 
-// ─── User Register ─────────────────────────────────────────────────────────────
+// ---------- User Register ----------
 export const registerUser = async (req: Request, res: Response): Promise<void> => {
   try {
     const { name, email, phone, password, address } = req.body;
@@ -47,7 +48,7 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
   }
 };
 
-// ─── User Login ────────────────────────────────────────────────────────────────
+// ---------- User Login ----------
 export const loginUser = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
@@ -64,6 +65,8 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
     }
 
     const token = signUserToken(String(user._id));
+
+    console.log("User logged in:", serializeUser(user));
     res.json({
       success: true,
       token,
@@ -74,15 +77,16 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-// ─── Get My Profile ────────────────────────────────────────────────────────────
+// ---------- Get My Profile ----------
 export const getMyProfile = async (req: Request, res: Response): Promise<void> => {
-  res.json({ success: true, user: serializeUser(req.user as unknown as { _id?: unknown; id?: unknown; name: string; email: string; phone: string; address: unknown; createdAt?: Date | string }) });
+  res.json({ success: true, user: serializeUser(req.user as unknown as { _id?: unknown; id?: unknown; name: string; email: string; phone: string; address: unknown; createdAt?: Date | string, role: string }) });
 };
 
-// ─── Update My Profile ─────────────────────────────────────────────────────────
+// ---------- Update My Profile ----------
 export const updateMyProfile = async (req: Request, res: Response): Promise<void> => {
   try {
     const { name, phone, address } = req.body;
+    
     const user = await User.findByIdAndUpdate(
       req.user!._id,
       { name, phone, address },
@@ -95,7 +99,7 @@ export const updateMyProfile = async (req: Request, res: Response): Promise<void
   }
 };
 
-// ─── Admin Login ───────────────────────────────────────────────────────────────
+// ---------- Admin Login ----------
 export const adminLogin = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
@@ -117,7 +121,7 @@ export const adminLogin = async (req: Request, res: Response): Promise<void> => 
   }
 };
 
-// ─── Admin: Get Own Profile ────────────────────────────────────────────────────
+// ---------- Admin: Get Own Profile ----------
 export const getAdminProfile = async (req: Request, res: Response): Promise<void> => {
   res.json({
     success: true,

@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import PricingConfig from '../models/PricingConfig';
 import { calculatePricing, generate12MonthBreakdown } from '../utils/pricing.util';
 
-// ─── Public: Get pricing config (selling prices only — no cost prices exposed) ──
+// ---------- Public: Get pricing config (selling prices only — no cost prices exposed) ----------
 export const getPublicPricing = async (_req: Request, res: Response): Promise<void> => {
   try {
     const config = await PricingConfig.findOne().sort({ updatedAt: -1 });
@@ -35,7 +35,7 @@ export const getPublicPricing = async (_req: Request, res: Response): Promise<vo
   }
 };
 
-// ─── Public: Live price calculator ────────────────────────────────────────────
+// ---------- Public: Live price calculator ----------
 export const calculatePrice = async (req: Request, res: Response): Promise<void> => {
   try {
     const { mealsPerDay, scheduleType, portions = 1, addOns = [] } = req.body as {
@@ -89,7 +89,7 @@ export const calculatePrice = async (req: Request, res: Response): Promise<void>
   }
 };
 
-// ─── Public: Get 12-month pricing breakdown ──────────────────────────────────
+// ---------- Public: Get 12-month pricing breakdown ----------
 export const get12MonthBreakdown = async (req: Request, res: Response): Promise<void> => {
   try {
     const { mealsPerDay, scheduleType, startDate, portions = 1, addOns = [] } = req.body as {
@@ -175,7 +175,7 @@ export const getAdminPricingConfig = async (_req: Request, res: Response): Promi
   }
 };
 
-// ─── Admin: Update pricing config ─────────────────────────────────────────────
+// ---------- Admin: Update pricing config ----------
 export const updatePricingConfig = async (req: Request, res: Response): Promise<void> => {
   try {
     const {

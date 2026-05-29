@@ -42,6 +42,7 @@ export interface ISubscription extends Document {
   status: SubscriptionStatus;
   paymentMethod: 'flutterwave' | 'manual_transfer';
   renewalCount: number;
+  assignedDriver?: mongoose.Types.ObjectId;
   
   // Auto-renewal configuration
   autoRenewal: boolean;
@@ -98,6 +99,7 @@ const SubscriptionSchema = new Schema<ISubscription>(
     },
     paymentMethod: { type: String, enum: ['flutterwave', 'manual_transfer'] },
     renewalCount: { type: Number, default: 0 },
+    assignedDriver: { type: Schema.Types.ObjectId, ref: 'User' },
     
     // Auto-renewal fields
     autoRenewal: { type: Boolean, default: false },

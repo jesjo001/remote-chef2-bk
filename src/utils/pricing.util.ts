@@ -305,3 +305,66 @@ export function generate12MonthBreakdown(
     maxMonthAmount: maxMonth,
   };
 }
+
+/**
+ * Calculate pricing for an arbitrary date range
+ */
+export function calculatePricingForRange(
+  config: IPricingConfig,
+  startDate: Date,
+  endDate: Date,
+  mealsPerDay: 1 | 2,
+  scheduleType: 'workdays' | 'alldays',
+  portions: number = 1,
+  addOns: AddOnSelection[] = []
+): PricingBreakdown {
+  const dates = generateDeliveryDates(startDate, endDate, scheduleType);
+  const deliveryDays = dates.length;
+
+  // Find portion pricing (default to base meal price if not found)
+  let portionPrice = config.mealPrice;
+  let portionCost = config.mealCostPrice;
+  
+  const selectedPortion = config.portionOptions?.find(p => p.portions === portions);
+  if (selectedPortion) {
+    portionPrice = selectedPortion.price;
+    portionCost = selectedPortion.cost;
+  }
+
+  // Selling price calculations
+  const addOnsPerDay = addOns.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const mealCostPerDay = portionPrice * mealsPerDay;
+  const dailyTotal = mealCostPerDay + config.deliveryFee + addOnsPerDay;
+  const monthlyBase = dailyTotal * deliveryDays;
+  const totalAmount = monthlyBase + config.processingFee;
+
+  // Cost price calculations
+  const addOnsCostPerDay = addOns.reduce((sum, item) => {
+    const addOnConfig = config.addOns?.find(a => a.name === item.name);
+    return sum + ((addOnConfig?.cost || item.price) * item.quantity);
+  }, 0);
+  const mealCostPerDayActual = portionCost * mealsPerDay;
+  const dailyCost = mealCostPerDayActual + config.deliveryCostPrice + addOnsCostPerDay;
+  const totalCost = dailyCost * deliveryDays;
+  const totalProfit = totalAmount - totalCost;
+  const profitMarginPercent = totalAmount > 0 ? Math.round((totalProfit / totalAmount) * 100) : 0;
+
+  return {
+    mealsPerDay,
+    scheduleType,
+    deliveryDays,
+    mealCostPerDay,
+    deliveryFee: config.deliveryFee,
+    addOnsPerDay,
+    dailyTotal,
+    monthlyBase,
+    processingFee: config.processingFee,
+    totalAmount,
+    mealCostPrice: config.mealCostPrice,
+    deliveryCostPrice: config.deliveryCostPrice,
+    addOnsCostPerDay,
+    totalCost,
+    totalProfit,
+    profitMarginPercent,
+  };
+}

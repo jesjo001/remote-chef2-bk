@@ -1,4 +1,4 @@
-// ─── src/routes/pricing.routes.ts ─────────────────────────────────────────────
+// ---------- Pricing Routes ----------
 import { Router } from 'express';
 import {
   getPublicPricing, calculatePrice, get12MonthBreakdown,
@@ -15,11 +15,13 @@ pricingRouter.put('/admin', adminProtect, updatePricingConfig);
 
 export { pricingRouter };
 
-// ─── src/routes/subscription.routes.ts ────────────────────────────────────────
+// ---------- Subscription Routes ----------
 import { Router as Router2 } from 'express';
 import {
   createSubscription, getMySubscriptions,
   getActiveSubscription, cancelSubscription,
+  calculatePortionUpgrade, initiatePortionUpgrade,
+  calculateAddOnUpgrade, initiateAddOnUpgrade,
 } from '../controllers/subscription.controller';
 import { protect as protect2 } from '../middleware/auth.middleware';
 
@@ -28,10 +30,14 @@ subscriptionRouter.post('/', protect2, createSubscription);
 subscriptionRouter.get('/', protect2, getMySubscriptions);
 subscriptionRouter.get('/active', protect2, getActiveSubscription);
 subscriptionRouter.put('/:id/cancel', protect2, cancelSubscription);
+subscriptionRouter.post('/:id/upgrade-portions/calculate', protect2, calculatePortionUpgrade);
+subscriptionRouter.post('/:id/upgrade-portions/initiate', protect2, initiatePortionUpgrade);
+subscriptionRouter.post('/:id/upgrade-addons/calculate', protect2, calculateAddOnUpgrade);
+subscriptionRouter.post('/:id/upgrade-addons/initiate', protect2, initiateAddOnUpgrade);
 
 export { subscriptionRouter };
 
-// ─── src/routes/payment.routes.ts ─────────────────────────────────────────────
+// ---------- Payment Routes ----------
 import { Router as Router3 } from 'express';
 import {
   initiateFlutterwave, flutterwaveWebhook, verifyPaymentStatus, getMyPayments,
@@ -51,28 +57,32 @@ paymentRouter.put('/manual/:id/review', adminProtect3, reviewManualTransfer);
 
 export { paymentRouter };
 
-// ─── src/routes/delivery.routes.ts ────────────────────────────────────────────
+// ---------- Delivery Routes ----------
 import { Router as Router4 } from 'express';
 import {
   getMyDeliveries, getTodayDeliveries,
   updateDeliveryStatus, getDeliveriesByRange,
+  getDriverDeliveries,
 } from '../controllers/delivery.controller';
-import { protect as protect4, adminProtect as adminProtect4 } from '../middleware/auth.middleware';
+import { protect as protect4, adminProtect as adminProtect4, driverOnly } from '../middleware/auth.middleware';
 
 const deliveryRouter = Router4();
 deliveryRouter.get('/my', protect4, getMyDeliveries);
+deliveryRouter.get('/driver/my', protect4, driverOnly, getDriverDeliveries);
+deliveryRouter.put('/driver/:id/status', protect4, driverOnly, updateDeliveryStatus);
 deliveryRouter.get('/admin/today', adminProtect4, getTodayDeliveries);
 deliveryRouter.get('/admin/range', adminProtect4, getDeliveriesByRange);
 deliveryRouter.put('/admin/:id/status', adminProtect4, updateDeliveryStatus);
 
 export { deliveryRouter };
 
-// ─── src/routes/admin.routes.ts ───────────────────────────────────────────────
+// ---------- Admin Routes ----------
 import { Router as Router5 } from 'express';
 import {
   getDashboardStats, getAllSubscribers, getAllUsers, getAllAdmins,
   getRevenueReport, createAdmin, toggleUserStatus, toggleSubscriptionStatus,
   deleteUser, toggleAdminStatus,
+  addDriver, listDrivers, assignDriverToSubscription, reassignDelivery,
 } from '../controllers/admin.controller';
 import { adminProtect as adminProtect5, superAdminOnly } from '../middleware/auth.middleware';
 
@@ -83,6 +93,12 @@ adminRouter.get('/users', adminProtect5, getAllUsers);
 adminRouter.get('/admins', adminProtect5, superAdminOnly, getAllAdmins);
 adminRouter.get('/revenue', adminProtect5, getRevenueReport);
 adminRouter.post('/create-admin', adminProtect5, superAdminOnly, createAdmin);
+
+// Driver management
+adminRouter.post('/drivers', adminProtect5, addDriver);
+adminRouter.get('/drivers', adminProtect5, listDrivers);
+adminRouter.post('/assign-driver', adminProtect5, assignDriverToSubscription);
+adminRouter.post('/reassign-delivery', adminProtect5, reassignDelivery);
 
 // User management
 adminRouter.put('/users/:userId/status', adminProtect5, toggleUserStatus);

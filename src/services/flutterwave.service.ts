@@ -1,11 +1,13 @@
 import axios from 'axios';
 
 const FLW_BASE = 'https://api.flutterwave.com/v3';
+const dev = process.env.NODE_ENV !== 'production';
+const FLW_SECRET_KEY = dev ? process.env.FLUTTERWAVE_TEST_SECRET_KEY : process.env.FLW_SECRET_KEY;
 
 export const verifyFlutterwavePayment = async (transactionId: string | number): Promise<boolean> => {
   try {
     const response = await axios.get(`${FLW_BASE}/transactions/${transactionId}/verify`, {
-      headers: { Authorization: `Bearer ${process.env.FLW_SECRET_KEY}` },
+      headers: { Authorization: `Bearer ${FLW_SECRET_KEY}` },
     });
     const data = response.data;
     return data.status === 'success' && data.data?.status === 'successful';
@@ -25,10 +27,11 @@ export const initiateFlutterwavePayment = async (
   phoneNumber: string,
   txRef: string,
   subscriptionId: string,
-  paymentId: string
+  paymentId: string,
+  extraMeta: Record<string, any> = {}
 ): Promise<{ 
   success: boolean; 
-  data?: { authorization_url?: string; access_code?: string; [key: string]: any };
+  data?: { authorization_url?: string; access_code?: string; link?: string; [key: string]: any };
   error?: string;
 }> => {
   try {
@@ -53,10 +56,11 @@ export const initiateFlutterwavePayment = async (
         meta: {
           subscriptionId,
           paymentId,
+          ...extraMeta,
         },
       },
       {
-        headers: { Authorization: `Bearer ${process.env.FLW_SECRET_KEY}` },
+        headers: { Authorization: `Bearer ${FLW_SECRET_KEY}` },
       }
     );
 
