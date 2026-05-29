@@ -29,6 +29,7 @@ export interface ISubscription extends Document {
     mealsPerDay: number;
     portionMultiplier: number;  // e.g., 1.5x if 1.5 portions per meal
     addOnsPerDay: number;       // Total add-ons cost per day
+    addOnsCostPerDay: number;   // Cost price of add-ons per day
     dailyTotal: number;
     monthlyBase: number;
     totalAmount: number;
@@ -83,6 +84,7 @@ const SubscriptionSchema = new Schema<ISubscription>(
       mealsPerDay: Number,
       portionMultiplier: Number,
       addOnsPerDay: Number,
+      addOnsCostPerDay: Number,
       dailyTotal: Number,
       monthlyBase: Number,
       totalAmount: Number,
