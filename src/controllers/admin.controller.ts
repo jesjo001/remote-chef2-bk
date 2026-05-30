@@ -187,18 +187,22 @@ export const getAllAdmins = async (_req: Request, res: Response): Promise<void> 
 export const toggleUserStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId } = req.params;
-    const { isActive } = req.body;
+    const { isActive, reassignTo } = req.body;
 
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { isActive },
-      { new: true }
-    ).select('-password');
-
+    const user = await User.findById(userId);
     if (!user) {
       res.status(404).json({ success: false, message: 'User not found.' });
       return;
     }
+
+    // Handle driver reassignment if blocking
+    if (user.role === 'driver' && !isActive && reassignTo) {
+      const targetDriverId = reassignTo === 'none' ? null : reassignTo;
+      await deliveryService.reassignAllDriverTasks(userId, targetDriverId);
+    }
+
+    user.isActive = isActive;
+    await user.save();
 
     res.json({
       success: true,
@@ -247,28 +251,29 @@ export const deleteUser = async (req: Request, res: Response): Promise<void> => 
   try {
     const { userId } = req.params;
     const { hardDelete } = req.query;
+    const { reassignTo } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      res.status(404).json({ success: false, message: 'User not found.' });
+      return;
+    }
+
+    // Handle driver reassignment if deleting
+    if (user.role === 'driver' && reassignTo) {
+      const targetDriverId = reassignTo === 'none' ? null : reassignTo;
+      await deliveryService.reassignAllDriverTasks(userId, targetDriverId);
+    }
 
     if (hardDelete === 'true') {
-      const user = await User.findByIdAndDelete(userId);
-      if (!user) {
-        res.status(404).json({ success: false, message: 'User not found.' });
-        return;
-      }
+      await User.findByIdAndDelete(userId);
       res.json({ success: true, message: 'User deleted permanently.' });
       return;
     }
 
     // Soft delete: just deactivate
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { isActive: false },
-      { new: true }
-    ).select('-password');
-
-    if (!user) {
-      res.status(404).json({ success: false, message: 'User not found.' });
-      return;
-    }
+    user.isActive = false;
+    await user.save();
 
     res.json({ success: true, message: 'User deactivated successfully.' });
   } catch (err) {
@@ -400,11 +405,13 @@ export const reassignDelivery = async (req: Request, res: Response): Promise<voi
   try {
     const { deliveryId, driverId } = req.body;
 
-    const delivery = await Delivery.findById(deliveryId);
+    const delivery = await Delivery.findById(deliveryId).populate('user');
     if (!delivery) {
       res.status(404).json({ success: false, message: 'Delivery not found.' });
       return;
     }
+
+    const oldDriverId = delivery.assignedDriver;
 
     const driver = await User.findOne({ _id: driverId, role: 'driver' });
     if (!driver) {
@@ -414,6 +421,42 @@ export const reassignDelivery = async (req: Request, res: Response): Promise<voi
 
     delivery.assignedDriver = driverId;
     await delivery.save();
+
+    // Send Emails
+    const user = delivery.user as any;
+    const area = user?.address?.area || 'N/A';
+    const dateStr = new Date(delivery.scheduledDate).toLocaleDateString();
+
+    // 1. Notify old driver
+    if (oldDriverId) {
+      const oldDriver = await User.findById(oldDriverId);
+      if (oldDriver && oldDriver.role === 'driver') {
+        await sendMail({
+          to: oldDriver.email,
+          subject: 'Delivery Unassigned',
+          html: `
+            <p>Hi ${oldDriver.name},</p>
+            <p>The delivery scheduled for <strong>${dateStr}</strong> to <strong>${area}</strong> has been unassigned from you.</p>
+          `
+        }).catch(err => console.error('Error sending delivery unassign email:', err));
+      }
+    }
+
+    // 2. Notify new driver
+    await sendMail({
+      to: driver.email,
+      subject: 'New Delivery Assigned',
+      html: `
+        <p>Hi ${driver.name},</p>
+        <p>A new individual delivery has been assigned to you!</p>
+        <ul>
+          <li><strong>Date:</strong> ${dateStr}</li>
+          <li><strong>Customer:</strong> ${user?.name || 'Customer'}</li>
+          <li><strong>Area:</strong> ${area}</li>
+        </ul>
+        <p>Please log in to your dashboard to view the details.</p>
+      `
+    }).catch(err => console.error('Error sending delivery assign email:', err));
 
     res.json({ success: true, message: 'Delivery reassigned successfully.' });
   } catch (err) {
