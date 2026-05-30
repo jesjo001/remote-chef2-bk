@@ -32,7 +32,7 @@ export const assignDriverToSubscription = async (
   const oldDriverId = subscription.assignedDriver;
   
   // Update subscription
-  subscription.assignedDriver = driverId;
+  subscription.assignedDriver = (driverId === null ? undefined : driverId) as any;
   await subscription.save();
 
   const today = new Date();
@@ -45,7 +45,7 @@ export const assignDriverToSubscription = async (
       status: 'scheduled',
       scheduledDate: { $gte: today }
     },
-    { assignedDriver: driverId }
+    { assignedDriver: (driverId === null ? undefined : driverId) as any }
   );
 
   // Send Emails
@@ -128,7 +128,7 @@ export const reassignAllDriverTasks = async (
   // 1. Reassign all active/paused subscriptions
   const subResult = await Subscription.updateMany(
     { assignedDriver: oldDriverId, status: { $in: ['active', 'paused', 'pending_payment'] } },
-    { assignedDriver: newDriverId }
+    { assignedDriver: (newDriverId === null ? undefined : newDriverId) as any }
   );
 
   // 2. Reassign all future scheduled deliveries
@@ -138,7 +138,7 @@ export const reassignAllDriverTasks = async (
       status: 'scheduled',
       scheduledDate: { $gte: today }
     },
-    { assignedDriver: newDriverId }
+    { assignedDriver: (newDriverId === null ? undefined : newDriverId) as any }
   );
 
   // Send Summary Emails
