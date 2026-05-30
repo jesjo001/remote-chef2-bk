@@ -17,6 +17,8 @@ export interface IUser extends Document {
   isEmailVerified: boolean;
   isActive: boolean;
   createdAt: Date;
+  emailVerificationToken?: string;
+  emailVerificationExpires?: Date;
   comparePassword(candidate: string): Promise<boolean>;
 }
 
@@ -35,6 +37,8 @@ const UserSchema = new Schema<IUser>(
       landmark: { type: String },
     },
     isEmailVerified: { type: Boolean, default: false },
+    emailVerificationToken: { type: String },
+    emailVerificationExpires: { type: Date },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

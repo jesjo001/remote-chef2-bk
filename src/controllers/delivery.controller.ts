@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import Delivery from '../models/Delivery';
+import { sendMail } from '../services/mail.service';
 
 // ─── User: Get My Deliveries ───────────────────────────────────────────────────
 export const getMyDeliveries = async (req: Request, res: Response): Promise<void> => {
@@ -103,7 +104,7 @@ export const updateDeliveryStatus = async (req: Request, res: Response): Promise
     const { status, driverNote, receiptImage } = req.body;
     const { id } = req.params;
 
-    const delivery = await Delivery.findById(id);
+    const delivery = await Delivery.findById(id).populate('user', 'name phone address email');
     if (!delivery) {
       res.status(404).json({ success: false, message: 'Delivery not found.' });
       return;
@@ -115,13 +116,40 @@ export const updateDeliveryStatus = async (req: Request, res: Response): Promise
       return;
     }
 
+    const prevStatus = delivery.status;
     delivery.status = status;
     if (driverNote !== undefined) delivery.driverNote = driverNote;
     if (receiptImage !== undefined) delivery.receiptImage = receiptImage;
     if (status === 'delivered') delivery.deliveredAt = new Date();
 
     await delivery.save();
-    
+
+    // Send notification when status changes to out_for_delivery
+    if (prevStatus === 'scheduled' && status === 'out_for_delivery') {
+      const user = delivery.user as any;
+      if (user?.email) {
+        try {
+          await sendMail({
+            to: user.email,
+            subject: 'Your meal is on the way! - RemoteChef',
+            html: `
+              <h2>Your meal is on the way!</h2>
+              <p>Hi ${user.name}, your RemoteChef meal is out for delivery today.</p>
+              <p><strong>Delivery details:</strong></p>
+              <ul>
+                <li>Meals: ${delivery.mealsCount} portion(s)</li>
+                <li>Date: ${new Date(delivery.scheduledDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</li>
+                <li>Status: Out for delivery</li>
+              </ul>
+              <p>Enjoy your meal!</p>
+            `,
+          });
+        } catch (mailErr) {
+          console.warn('Failed to send delivery notification:', mailErr);
+        }
+      }
+    }
+
     const populated = await Delivery.findById(id).populate('user', 'name phone');
 
     res.json({ success: true, delivery: populated });

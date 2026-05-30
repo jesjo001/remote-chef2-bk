@@ -7,6 +7,7 @@ import { Payment, IPayment, ManualTransfer } from '../models/Payment';
 import { calculatePricing, calculatePricingForRange, generateDeliveryDates, generateTxRef } from '../utils/pricing.util';
 import { findAvailableDriver } from '../services/delivery.service';
 import { initiateFlutterwavePayment } from '../services/flutterwave.service';
+import { sendMail } from '../services/mail.service';
 
 // ---------- User: Create Subscription (initiate) ----------
 export const createSubscription = async (req: Request, res: Response): Promise<void> => {
@@ -172,7 +173,7 @@ export const getActiveSubscription = async (req: Request, res: Response): Promis
 export const activateSubscription = async (subscriptionId: string): Promise<void> => {
   const updateData: any = { status: 'active' };
   
-  const subscription = await Subscription.findById(subscriptionId);
+  const subscription = await Subscription.findById(subscriptionId).populate('user');
   if (!subscription) return;
 
   // Reset renewal attempt tracking for active subscriptions with auto-renewal
@@ -188,6 +189,8 @@ export const activateSubscription = async (subscriptionId: string): Promise<void
   );
 
   if (!updatedSubscription) return;
+
+  const user = updatedSubscription.user as typeof User.prototype;
 
   const driverId = await findAvailableDriver();
   if (driverId) {
@@ -206,6 +209,31 @@ export const activateSubscription = async (subscriptionId: string): Promise<void
   }));
 
   await Delivery.insertMany(deliveryDocs);
+
+  try {
+    const startDateStr = new Date(updatedSubscription.startDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const endDateStr = new Date(updatedSubscription.endDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    
+    await sendMail({
+      to: user.email,
+      subject: 'Subscription Activated - RemoteChef',
+      html: `
+        <h2>Subscription Activated!</h2>
+        <p>Your RemoteChef subscription is now active.</p>
+        <p><strong>Details:</strong></p>
+        <ul>
+          <li>Meals per day: ${updatedSubscription.mealsPerDay}</li>
+          <li>Schedule: ${updatedSubscription.scheduleType === 'workdays' ? 'Weekdays only' : 'Every day'}</li>
+          <li>Start date: ${startDateStr}</li>
+          <li>End date: ${endDateStr}</li>
+          <li>Amount: ₦${updatedSubscription.snapshot.totalAmount.toLocaleString()}</li>
+        </ul>
+        <p>Your meals will be delivered on schedule. We'll notify you before each delivery.</p>
+      `,
+    });
+  } catch (mailErr) {
+    console.warn('Failed to send subscription activation email:', mailErr);
+  }
 };
 
 // ---------- User: Cancel Subscription ----------

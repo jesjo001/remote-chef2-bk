@@ -25,6 +25,7 @@ export const sendMail = async (options: MailOptions) => {
         to: options.to,
         subject: options.subject,
         html: options.html,
+        // from: process.env.API_MAIL_FROM,
       },
       {
         headers: {
